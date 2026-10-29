@@ -1,3 +1,5 @@
-# Local prank assets / state — don't commit binaries
-shrek.jpg
+# Local prank state (generated at runtime) — don't commit
+shrek.download
+
+# Optional custom icon — add your own if you want shortcut icons shrekified
 shrek.ico
