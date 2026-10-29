@@ -25,8 +25,9 @@
     Show what would happen without changing anything. (Built-in.)
 
 .NOTES
-    Put shrek.jpg (the image) and shrek.ico (the icon) next to this script,
-    or let the script download them on first run.
+    Put shrek.jpg (the image) and optionally shrek.ico (the icon) next to
+    this script. shrek.jpg is required; without shrek.ico the shortcut-icon
+    step is skipped.
     Target: Windows PowerShell 5.1+ or PowerShell 7+. Run as your normal user.
 #>
 
@@ -66,16 +67,7 @@ function Set-Wallpaper([string]$Path) {
 # --- Asset bootstrap ---------------------------------------------------------
 function Ensure-Assets {
     if (-not (Test-Path $ShrekImage)) {
-        Write-Host "shrek.jpg not found - downloading a placeholder..." -ForegroundColor Yellow
-        try {
-            # A plain Shrek image. Swap this URL (or just drop your own shrek.jpg
-            # next to the script) for the picture you actually want.
-            Invoke-WebRequest -UseBasicParsing `
-                -Uri 'https://upload.wikimedia.org/wikipedia/en/3/39/Shrek.png' `
-                -OutFile $ShrekImage
-        } catch {
-            throw "Could not download a Shrek image. Put your own 'shrek.jpg' next to the script and rerun. ($_)"
-        }
+        throw "shrek.jpg not found next to the script ($ShrekImage). Put a 'shrek.jpg' there and rerun."
     }
     if (-not (Test-Path $ShrekIcon)) {
         Write-Host "shrek.ico not found - shortcut icons will be left alone." -ForegroundColor Yellow
@@ -206,13 +198,18 @@ function Invoke-Restore {
 
     # --- 1. Wallpaper ---
     if ($m.wallpaper -and $PSCmdlet.ShouldProcess('desktop wallpaper', 'restore')) {
-        if ($m.wallpaper.original) { Set-Wallpaper $m.wallpaper.original }
+        # Passing '' to SystemParametersInfo clears the wallpaper, which is the
+        # correct restore when the user originally had a solid-color background.
+        Set-Wallpaper ([string]$m.wallpaper.original)
         Write-Host "  wallpaper restored"
     }
 
     # --- 2. Image files ---
+    # @(...) guards against ConvertFrom-Json returning a single object (not an
+    # array) for one entry, or an empty-string for a zero-length array.
+    $imgEntries = @($m.images) | Where-Object { $_ -and $_.original }
     $restored = 0
-    foreach ($entry in $m.images) {
+    foreach ($entry in $imgEntries) {
         if (-not $PSCmdlet.ShouldProcess($entry.original, 'restore original')) { continue }
         try {
             if (Test-Path -LiteralPath $entry.backup) {
@@ -221,12 +218,13 @@ function Invoke-Restore {
             }
         } catch { Write-Warning "could not restore $($entry.original): $_" }
     }
-    Write-Host "  images restored: $restored / $($m.images.Count)"
+    Write-Host "  images restored: $restored / $($imgEntries.Count)"
 
     # --- 3. Shortcut icons ---
-    if ($m.shortcuts) {
+    $lnkEntries = @($m.shortcuts) | Where-Object { $_ -and $_.path }
+    if ($lnkEntries.Count -gt 0) {
         $sh = New-Object -ComObject WScript.Shell
-        foreach ($s in $m.shortcuts) {
+        foreach ($s in $lnkEntries) {
             if (-not $PSCmdlet.ShouldProcess($s.path, 'restore icon')) { continue }
             try {
                 $lnk = $sh.CreateShortcut($s.path)
@@ -234,7 +232,7 @@ function Invoke-Restore {
                 $lnk.Save()
             } catch { Write-Warning "could not restore icon $($s.path): $_" }
         }
-        Write-Host "  shortcut icons restored: $($m.shortcuts.Count)"
+        Write-Host "  shortcut icons restored: $($lnkEntries.Count)"
     }
 
     if (-not $WhatIfPreference) {
